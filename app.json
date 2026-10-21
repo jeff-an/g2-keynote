@@ -1,0 +1,8 @@
+{
+  "package_id": "dev.local.g2presenter",
+  "name": "G2 Presenter",
+  "version": "0.1.0",
+  "description": "Keynote speaker notes and next-slide preview on your G2.",
+  "entry": "index.html",
+  "permissions": ["storage"]
+}

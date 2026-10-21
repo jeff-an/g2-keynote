@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>G2 Presenter</title>
+    <style>
+      body { font: 15px/1.4 -apple-system, system-ui, sans-serif; margin: 0; padding: 16px; background: #0b0b0b; color: #e8e8e8; }
+      h1 { font-size: 18px; margin: 0 0 12px; }
+      #status { font-weight: 600; margin-bottom: 12px; }
+      #status.ok { color: #4ade80; } #status.bad { color: #f87171; }
+      pre { white-space: pre-wrap; background: #161616; border-radius: 8px; padding: 12px; font: 13px/1.35 ui-monospace, monospace; }
+      label { display: block; margin: 16px 0 4px; font-size: 13px; color: #aaa; }
+      input { width: 100%; box-sizing: border-box; padding: 8px; border-radius: 6px; border: 1px solid #333; background: #111; color: inherit; }
+      button { margin-top: 8px; padding: 8px 14px; border-radius: 6px; border: 0; background: #2563eb; color: white; }
+    </style>
+  </head>
+  <body>
+    <h1>G2 Presenter</h1>
+    <div id="status" class="bad">Connecting…</div>
+    <pre id="preview">Waiting for Keynote…</pre>
+    <label for="helper">Helper URL (only needed for a packed .ehpk)</label>
+    <input id="helper" placeholder="http://100.x.y.z:4545/?token=…" />
+    <button id="save">Save &amp; reconnect</button>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
