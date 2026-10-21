@@ -36,7 +36,9 @@ The helper prints a URL per network interface, including the token, e.g.
 the same Wi-Fi.
 
 The first time it talks to Keynote, macOS asks whether your terminal may control Keynote —
-allow it (System Settings → Privacy & Security → Automation if you missed the prompt).
+allow it (System Settings → Privacy & Security → Automation if you missed the prompt; until
+then the lens shows a reminder). macOS may also ask whether `node` may accept incoming network
+connections — allow that too, or the phone can't reach the helper.
 
 ## Load it on the glasses
 

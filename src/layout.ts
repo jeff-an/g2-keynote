@@ -22,6 +22,7 @@ export function renderScreen({
   if (!connected || !state) return message("G2 Presenter", "Helper offline.\nReconnecting…");
   if (state.status === "no-app") return message("G2 Presenter", "Keynote isn't running.");
   if (state.status === "no-deck") return message("G2 Presenter", "Open a deck in Keynote.");
+  if (state.status === "error") return message("G2 Presenter", wrap(state.error ?? "Helper error.").join("\n"));
 
   const { current, next } = state;
   const pages = paginate(wrap(current?.notes || "(no notes)"), BODY_LINES);
@@ -83,7 +84,8 @@ function message(header: string, body: string): Screen {
 // first notes line, skipping it when the untitled slide's title was already taken from it
 function notesPreview(title: string, notes: string): string {
   const lines = notes.split("\n").map((l) => l.trim()).filter(Boolean);
-  const titleFromNotes = lines[0]?.startsWith(title.replace(/…$/, ""));
+  const first = lines[0] ?? "";
+  const titleFromNotes = title === first || (title.endsWith("…") && first.startsWith(title.slice(0, -1)));
   return (titleFromNotes ? lines[1] : lines[0]) ?? "";
 }
 

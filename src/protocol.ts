@@ -8,7 +8,8 @@ export type SlideInfo = {
 
 export type DeckState = {
   source: "keynote" | "mock";
-  status: "no-app" | "no-deck" | "editing" | "playing";
+  status: "no-app" | "no-deck" | "editing" | "playing" | "error";
+  error?: string; // shown on the lens when status is "error"
   deck: string | null;
   current: SlideInfo | null;
   next: SlideInfo | null; // next non-skipped slide; null on the last slide

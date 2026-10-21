@@ -2,6 +2,7 @@ import {
   CreateStartUpPageContainer,
   EvenAppBridge,
   EvenHubEvent,
+  StartUpPageCreateResult,
   TextContainerProperty,
   TextContainerUpgrade,
   waitForEvenAppBridge,
@@ -12,6 +13,8 @@ import { ClientMessage, DeckState, ServerMessage } from "./protocol.ts";
 
 const HELPER_KEY = "helperUrl";
 const RECONNECT_MAX_MS = 5000;
+// the helper sends state every 3s, so silence this long means the connection is dead
+const STALE_CONNECTION_MS = 8000;
 
 // -------- glasses page: three stacked text panes -------------------------------
 const PANES = [
@@ -41,31 +44,47 @@ function connect(helper: URL | null, attempt = 0) {
   }
   const ws = new WebSocket(`${helper.protocol === "https:" ? "wss" : "ws"}://${helper.host}/ws?token=${helper.searchParams.get("token") ?? ""}`);
   socket = ws;
-  ws.onopen = () => {
-    attempt = 0;
-    connected = true;
-    setStatus(true, `Connected to ${helper.host}`);
-    render();
-  };
-  ws.onmessage = (ev) => {
-    const msg: ServerMessage = JSON.parse(String(ev.data));
-    if (msg.type !== "state") return;
-    onState(msg.state);
-  };
-  ws.onclose = () => {
+  let lastMessageAt = Date.now();
+  let done = false;
+
+  // a WebView socket can stay OPEN long after the network died, and close() on a dead socket
+  // may not fire onclose for a while, so the watchdog tears down directly
+  const teardown = () => {
+    if (done) return;
+    done = true;
+    clearInterval(watchdog);
+    ws.onclose = ws.onmessage = ws.onopen = null;
+    ws.close();
     connected = false;
     setStatus(false, `Disconnected from ${helper.host} — retrying…`);
     render();
     // a saved URL may have changed while we were connected
     setTimeout(() => connect(resolveHelperUrl() ?? helper, attempt + 1), Math.min(RECONNECT_MAX_MS, 500 * 2 ** attempt));
   };
+  const watchdog = setInterval(() => {
+    if (Date.now() - lastMessageAt > STALE_CONNECTION_MS) teardown();
+  }, 1000);
+
+  ws.onopen = () => {
+    attempt = 0;
+    lastMessageAt = Date.now();
+    connected = true;
+    setStatus(true, `Connected to ${helper.host}`);
+    render();
+  };
+  ws.onmessage = (ev) => {
+    lastMessageAt = Date.now();
+    const msg: ServerMessage = JSON.parse(String(ev.data));
+    if (msg.type === "state") onState(msg.state);
+  };
+  ws.onclose = teardown;
 }
 
 // a live socket reconnects from its close handler (and a closed one already has a retry
 // scheduled), both re-resolving the URL
 function reconnect() {
   if (!socket) connect(resolveHelperUrl());
-  else if (socket.readyState !== WebSocket.CLOSED) socket.close();
+  else socket.onclose?.(new CloseEvent("close"));
 }
 
 function onState(next: DeckState) {
@@ -102,7 +121,7 @@ function setStatus(ok: boolean, text: string) {
 function onGesture(gesture: "tap" | "double" | "up" | "down") {
   if (gesture === "tap") sendCommand("next");
   if (gesture === "double") sendCommand("prev");
-  if (gesture === "up") page = Math.max(0, page - 1);
+  if (gesture === "up") page = Math.max(0, Math.min(page, pageCount - 1) - 1);
   if (gesture === "down") page = Math.min(pageCount - 1, page + 1);
   render();
 }
@@ -111,7 +130,8 @@ function onGesture(gesture: "tap" | "double" | "up" | "down") {
 class GlassesView {
   private bridge: EvenAppBridge | null = null;
   private sent: Partial<Record<PaneName, string>> = {};
-  private queue: Promise<unknown> = Promise.resolve();
+  private pending = new Map<PaneName, string>();
+  private flushing = false;
   private latest: Screen | null = null;
   private readonly gestures = new Gestures(onGesture);
 
@@ -124,7 +144,7 @@ class GlassesView {
       reconnect();
     }
     const initial = this.latest ?? renderScreen({ state: null, connected: false, page: 0, elapsedMs: null });
-    await bridge.createStartUpPageContainer(
+    const result = await bridge.createStartUpPageContainer(
       new CreateStartUpPageContainer({
         containerTotalNum: PANES.length,
         textObject: PANES.map(
@@ -145,6 +165,10 @@ class GlassesView {
         ),
       }),
     );
+    if (result !== StartUpPageCreateResult.success) {
+      setStatus(false, `Glasses rejected the page layout (code ${result}).`);
+      return;
+    }
     for (const p of PANES) this.sent[p.name] = initial[p.name];
     bridge.onEvenHubEvent((event: EvenHubEvent) => this.gestures.handle(event));
     this.bridge = bridge;
@@ -155,21 +179,35 @@ class GlassesView {
     return this.bridge?.setLocalStorage(HELPER_KEY, url);
   }
 
-  // updates are serialized; the bridge must not receive concurrent writes
   show(screen: Screen) {
     this.latest = screen;
     if (!this.bridge) return;
-    const bridge = this.bridge;
     for (const p of PANES) {
-      const content = screen[p.name];
-      if (this.sent[p.name] === content) continue;
-      this.sent[p.name] = content;
-      this.gestures.noteTextUpdate();
-      this.queue = this.queue.then(() =>
-        bridge.textContainerUpgrade(
-          new TextContainerUpgrade({ containerID: p.id, containerName: p.name, contentOffset: 0, contentLength: 2000, content }),
-        ),
-      );
+      if (this.sent[p.name] !== screen[p.name]) this.pending.set(p.name, screen[p.name]);
+    }
+    void this.flush();
+  }
+
+  // writes are serialized (the bridge must not get concurrent writes) and keep only the latest
+  // text per pane, so slow BLE never builds a backlog; a failed write is retried by the next
+  // render, at most a second later
+  private async flush() {
+    if (this.flushing || !this.bridge) return;
+    this.flushing = true;
+    try {
+      for (const [name, content] of this.pending) {
+        this.pending.delete(name);
+        const pane = PANES.find((p) => p.name === name)!;
+        this.gestures.noteTextUpdate();
+        const ok = await this.bridge
+          .textContainerUpgrade(
+            new TextContainerUpgrade({ containerID: pane.id, containerName: name, contentOffset: 0, contentLength: 2000, content }),
+          )
+          .catch(() => false);
+        if (ok) this.sent[name] = content;
+      }
+    } finally {
+      this.flushing = false;
     }
   }
 }

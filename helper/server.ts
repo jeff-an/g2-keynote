@@ -14,6 +14,7 @@ import { Source } from "./state.ts";
 const PORT = Number(process.env.PORT ?? 4545);
 const HOST = process.env.HOST ?? "0.0.0.0";
 const POLL_MS = 250;
+const HEARTBEAT_MS = 3000;
 const DIST_DIR = fileURLToPath(new URL("../dist/", import.meta.url));
 const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -47,6 +48,8 @@ const server = createServer(async (req, res) => {
 const wss = new WebSocketServer({ noServer: true });
 let state: DeckState | null = null;
 let lastSent = "";
+let lastError = "";
+const alive = new WeakSet<WebSocket>();
 
 server.on("upgrade", (req, socket, head) => {
   const url = new URL(req.url ?? "/", "http://x");
@@ -59,7 +62,11 @@ server.on("upgrade", (req, socket, head) => {
 
 wss.on("connection", (ws) => {
   console.log(`glasses connected (${wss.clients.size} client(s))`);
+  alive.add(ws);
   if (state) send(ws, state);
+  ws.on("pong", () => alive.add(ws));
+  // malformed frames emit "error"; without a listener they crash the process
+  ws.on("error", (err) => console.error("socket error:", err.message));
   ws.on("message", async (raw) => {
     try {
       const msg: ClientMessage = JSON.parse(raw.toString());
@@ -78,13 +85,36 @@ function send(ws: WebSocket, s: DeckState) {
   ws.send(JSON.stringify(msg));
 }
 
-// only broadcast real changes; the glasses run the timer locally from elapsedMs
+// single-flight: a tick requested mid-poll (e.g. right after a command) reruns once the current
+// poll finishes, so an older osascript result can never land after a newer one
+let polling = false;
+let rerun = false;
 async function tick() {
+  if (polling) {
+    rerun = true;
+    return;
+  }
+  polling = true;
+  try {
+    do {
+      rerun = false;
+      await pollOnce();
+    } while (rerun);
+  } finally {
+    polling = false;
+  }
+}
+
+// only broadcast real changes; the glasses run the timer locally from elapsedMs
+async function pollOnce() {
   try {
     state = await source.poll();
+    lastError = "";
   } catch (err) {
-    console.error("keynote poll failed:", err);
-    return;
+    const message = err instanceof Error ? err.message : JSON.stringify(err);
+    if (message !== lastError) console.error("keynote poll failed:", message);
+    lastError = message;
+    state = errorState(message);
   }
   const key = JSON.stringify({ ...state, elapsedMs: state.elapsedMs === null });
   if (key === lastSent) return;
@@ -92,13 +122,37 @@ async function tick() {
   for (const ws of wss.clients) send(ws, state);
 }
 
-let polling = false;
-setInterval(async () => {
-  if (polling) return;
-  polling = true;
-  await tick();
-  polling = false;
-}, POLL_MS);
+setInterval(tick, POLL_MS);
+
+// heartbeat: drop peers that stopped answering pings, and resend state so the glasses can tell
+// a quiet connection from a dead one
+setInterval(() => {
+  for (const ws of wss.clients) {
+    if (!alive.has(ws)) {
+      ws.terminate();
+      continue;
+    }
+    alive.delete(ws);
+    ws.ping();
+    if (state) send(ws, state);
+  }
+}, HEARTBEAT_MS);
+
+// the usual first-run failure is macOS blocking Automation access to Keynote
+function errorState(message: string): DeckState {
+  const automation = /not allowed|not authori[sz]ed|-1743/i.test(message);
+  return {
+    source: mock ? "mock" : "keynote",
+    status: "error",
+    error: automation ? "Allow Automation access to Keynote in System Settings → Privacy & Security." : "Can't read Keynote. See the helper's terminal.",
+    deck: null,
+    current: null,
+    next: null,
+    shownCount: 0,
+    shownIndex: 0,
+    elapsedMs: null,
+  };
+}
 
 server.listen(PORT, HOST, () => {
   console.log(`G2 Presenter helper (${mock ? "mock deck" : "Keynote"}) on ${HOST}:${PORT}\n`);

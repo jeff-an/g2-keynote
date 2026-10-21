@@ -46,5 +46,7 @@ export function buildState({
 function toInfo({ number, title, notes }: DeckSlide): SlideInfo {
   const firstNoteLine = notes.trim().split("\n")[0]?.trim() ?? "";
   const fallback = firstNoteLine.length > FALLBACK_TITLE_CHARS ? firstNoteLine.slice(0, FALLBACK_TITLE_CHARS - 1) + "…" : firstNoteLine;
-  return { number, title: title.trim() || fallback || `Slide ${number}`, notes: notes.trim() };
+  // titles often contain soft line breaks; the lens shows them on one line
+  const flatTitle = title.replace(/\s+/g, " ").trim();
+  return { number, title: flatTitle || fallback || `Slide ${number}`, notes: notes.trim() };
 }
