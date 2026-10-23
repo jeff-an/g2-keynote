@@ -30,8 +30,12 @@ const token = loadToken();
 
 // -------- http: serves the built glasses app ---------------------------------
 const server = createServer(async (req, res) => {
-  const path = new URL(req.url ?? "/", "http://x").pathname;
-  const file = normalize(join(DIST_DIR, path === "/" ? "index.html" : path));
+  const url = parseRequestUrl(req.url);
+  if (!url) {
+    res.writeHead(400).end();
+    return;
+  }
+  const file = normalize(join(DIST_DIR, url.pathname === "/" ? "index.html" : url.pathname));
   if (!file.startsWith(DIST_DIR)) {
     res.writeHead(403).end();
     return;
@@ -52,8 +56,8 @@ let lastError = "";
 const alive = new WeakSet<WebSocket>();
 
 server.on("upgrade", (req, socket, head) => {
-  const url = new URL(req.url ?? "/", "http://x");
-  if (url.pathname !== "/ws" || url.searchParams.get("token") !== token) {
+  const url = parseRequestUrl(req.url);
+  if (url?.pathname !== "/ws" || url.searchParams.get("token") !== token) {
     socket.end("HTTP/1.1 401 Unauthorized\r\n\r\n");
     return;
   }
@@ -157,12 +161,26 @@ function errorState(message: string): DeckState {
 server.listen(PORT, HOST, () => {
   console.log(`G2 Presenter helper (${mock ? "mock deck" : "Keynote"}) on ${HOST}:${PORT}\n`);
   console.log("Open one of these in the Even app (dev mode → scan QR):");
-  for (const { name, address } of lanAddresses()) {
-    const url = `http://${address}:${PORT}/?token=${token}`;
-    console.log(`  ${address.startsWith("100.") ? "tailscale" : name.padEnd(9)}  ${url}`);
+  const addresses = lanAddresses();
+  for (const { name, address } of addresses) {
+    console.log(`  ${address.startsWith("100.") ? "tailscale" : name.padEnd(9)}  http://${address}:${PORT}/?token=${token}`);
   }
-  console.log(`\nQR code:  npx evenhub qr --url "http://<address>:${PORT}/?token=${token}"`);
+  // single quotes so shells don't escape the "?" or "=" (zsh pastes them as "\?" and "\=")
+  const preferred = addresses.find((a) => a.address.startsWith("100.")) ?? addresses[0];
+  if (preferred) console.log(`\nQR code:\n  npx evenhub qr --url 'http://${preferred.address}:${PORT}/?token=${token}'`);
 });
+
+// paths like "//?token=…" are protocol-relative to `new URL(path, base)` and throw, so prefix
+// the origin instead and collapse repeated slashes
+function parseRequestUrl(raw = "/"): URL | null {
+  try {
+    const url = new URL(`http://x/${raw.replace(/^\/+/, "")}`);
+    url.pathname = url.pathname.replace(/\/{2,}/g, "/");
+    return url;
+  } catch {
+    return null;
+  }
+}
 
 function lanAddresses() {
   return Object.entries(networkInterfaces()).flatMap(([name, addrs]) =>

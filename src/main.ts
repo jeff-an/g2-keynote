@@ -42,7 +42,7 @@ function connect(helper: URL | null, attempt = 0) {
     setStatus(false, "No helper URL — scan the QR the helper prints, or paste its URL below.");
     return;
   }
-  const ws = new WebSocket(`${helper.protocol === "https:" ? "wss" : "ws"}://${helper.host}/ws?token=${helper.searchParams.get("token") ?? ""}`);
+  const ws = new WebSocket(`${helper.protocol === "https:" ? "wss" : "ws"}://${helper.host}/ws?token=${encodeURIComponent(tokenOf(helper))}`);
   socket = ws;
   let lastMessageAt = Date.now();
   let done = false;
@@ -215,7 +215,7 @@ class GlassesView {
 // helper URL comes from the page itself when served by the helper (QR flow), else from settings
 function resolveHelperUrl(): URL | null {
   const here = new URL(location.href);
-  if (here.protocol.startsWith("http") && here.searchParams.get("token")) return here;
+  if (here.protocol.startsWith("http") && tokenOf(here)) return here;
   const saved = safeStorage(() => localStorage.getItem(HELPER_KEY)) || helperInput.value.trim();
   if (!saved) return null;
   try {
@@ -223,6 +223,14 @@ function resolveHelperUrl(): URL | null {
   } catch {
     return null;
   }
+}
+
+// tolerates shell-escaped URLs ("?token\\=…") that made it into a QR code
+function tokenOf(url: URL): string {
+  for (const [key, value] of url.searchParams) {
+    if (key.replace(/\\/g, "") === "token") return value;
+  }
+  return "";
 }
 
 // WebView storage can throw (private mode, disabled storage)
