@@ -8,7 +8,7 @@ import {
   waitForEvenAppBridge,
 } from "@evenrealities/even_hub_sdk";
 import { Gestures } from "./gestures.ts";
-import { renderScreen, Screen } from "./layout.ts";
+import { PANE_GEOMETRY, renderScreen, Screen } from "./layout.ts";
 import { ClientMessage, DeckState, ServerMessage } from "./protocol.ts";
 
 const HELPER_KEY = "helperUrl";
@@ -18,10 +18,12 @@ const STALE_CONNECTION_MS = 8000;
 
 // -------- glasses page: three stacked text panes -------------------------------
 const PANES = [
-  { id: 1, name: "header", y: 0, height: 36, brightness: 3 },
-  { id: 2, name: "body", y: 36, height: 196, brightness: 4 },
-  { id: 3, name: "footer", y: 232, height: 56, brightness: 2 },
+  { id: 1, name: "header", ...PANE_GEOMETRY.header, brightness: 3 },
+  { id: 2, name: "body", ...PANE_GEOMETRY.body, brightness: 4 },
+  { id: 3, name: "footer", ...PANE_GEOMETRY.footer, brightness: 2 },
 ] as const;
+// a flaky BLE hop can hang a bridge call for ~30s; give up and let the next render retry
+const BRIDGE_TIMEOUT_MS = 3000;
 type PaneName = (typeof PANES)[number]["name"];
 
 let state: DeckState | null = null;
@@ -97,10 +99,17 @@ function onState(next: DeckState) {
   render();
 }
 
-function sendCommand(type: ClientMessage["type"]) {
-  if (socket?.readyState !== WebSocket.OPEN) return;
-  const msg: ClientMessage = { type };
-  socket.send(JSON.stringify(msg));
+function sendCommand(type: "next" | "prev") {
+  send({ type });
+}
+
+// raw glasses input, printed by the helper in --debug / dev mode
+function sendDebug(event: unknown) {
+  send({ type: "debug", event });
+}
+
+function send(msg: ClientMessage) {
+  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
 }
 
 // -------- rendering ---------------------------------------------------------------
@@ -154,9 +163,9 @@ class GlassesView {
               containerName: p.name,
               xPosition: 0,
               yPosition: p.y,
-              width: 576,
+              width: PANE_GEOMETRY.width,
               height: p.height,
-              paddingLength: 6,
+              paddingLength: PANE_GEOMETRY.pad,
               textColor: p.brightness,
               // the body pane receives ring / temple input
               isEventCapture: p.name === "body" ? 1 : 0,
@@ -170,7 +179,10 @@ class GlassesView {
       return;
     }
     for (const p of PANES) this.sent[p.name] = initial[p.name];
-    bridge.onEvenHubEvent((event: EvenHubEvent) => this.gestures.handle(event));
+    bridge.onEvenHubEvent((event: EvenHubEvent) => {
+      sendDebug(event.jsonData ?? event);
+      this.gestures.handle(event);
+    });
     this.bridge = bridge;
     if (this.latest) this.show(this.latest);
   }
@@ -199,11 +211,11 @@ class GlassesView {
         this.pending.delete(name);
         const pane = PANES.find((p) => p.name === name)!;
         this.gestures.noteTextUpdate();
-        const ok = await this.bridge
-          .textContainerUpgrade(
-            new TextContainerUpgrade({ containerID: pane.id, containerName: name, contentOffset: 0, contentLength: 2000, content }),
-          )
-          .catch(() => false);
+        const write = this.bridge.textContainerUpgrade(
+          new TextContainerUpgrade({ containerID: pane.id, containerName: name, contentOffset: 0, contentLength: 2000, content }),
+        );
+        const timeout = new Promise<false>((resolve) => setTimeout(() => resolve(false), BRIDGE_TIMEOUT_MS));
+        const ok = await Promise.race([write, timeout]).catch(() => false);
         if (ok) this.sent[name] = content;
       }
     } finally {

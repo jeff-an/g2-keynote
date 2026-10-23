@@ -4,17 +4,22 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Keynote speaker notes and next-slide preview on Even Realities G2 glasses",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
-    "build": "vite build",
+    "dev": "tsx watch helper/server.ts --dev --debug & vite --host --port 5173 --strictPort",
+    "dev:mock": "tsx watch helper/server.ts --dev --debug --mock & vite --host --port 5173 --strictPort",
     "start": "npm run build && tsx helper/server.ts",
+    "debug": "npm run build && tsx helper/server.ts --debug",
     "mock": "npm run build && tsx helper/server.ts --mock",
-    "dev": "tsx watch helper/server.ts",
+    "build": "vite build",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts",
     "pack:ehpk": "npm run build && evenhub pack app.json ./dist -o g2-presenter.ehpk"
   },
   "dependencies": {
+    "@evenrealities/pretext": "^0.1.4",
     "ws": "^8.18.0"
   },
   "devDependencies": {

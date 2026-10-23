@@ -25,6 +25,9 @@ const CONTENT_TYPES: Record<string, string> = {
 };
 
 const mock = process.argv.includes("--mock");
+const debug = process.argv.includes("--debug");
+// `npm run dev`: the app is served by Vite (hot reload) on this port, proxying /ws to us
+const DEV_APP_PORT = process.argv.includes("--dev") ? 5173 : null;
 const source: Source = mock ? new MockSource() : new KeynoteSource();
 const token = loadToken();
 
@@ -74,6 +77,10 @@ wss.on("connection", (ws) => {
   ws.on("message", async (raw) => {
     try {
       const msg: ClientMessage = JSON.parse(raw.toString());
+      if (msg.type === "debug") {
+        if (debug) console.log("glasses event:", JSON.stringify(msg.event));
+        return;
+      }
       if (msg.type === "next") await source.next();
       if (msg.type === "prev") await source.prev();
     } catch (err) {
@@ -161,13 +168,14 @@ function errorState(message: string): DeckState {
 server.listen(PORT, HOST, () => {
   console.log(`G2 Presenter helper (${mock ? "mock deck" : "Keynote"}) on ${HOST}:${PORT}\n`);
   console.log("Open one of these in the Even app (dev mode → scan QR):");
+  const appPort = DEV_APP_PORT ?? PORT;
   const addresses = lanAddresses();
   for (const { name, address } of addresses) {
-    console.log(`  ${address.startsWith("100.") ? "tailscale" : name.padEnd(9)}  http://${address}:${PORT}/?token=${token}`);
+    console.log(`  ${address.startsWith("100.") ? "tailscale" : name.padEnd(9)}  http://${address}:${appPort}/?token=${token}`);
   }
   // single quotes so shells don't escape the "?" or "=" (zsh pastes them as "\?" and "\=")
   const preferred = addresses.find((a) => a.address.startsWith("100.")) ?? addresses[0];
-  if (preferred) console.log(`\nQR code:\n  npx evenhub qr --url 'http://${preferred.address}:${PORT}/?token=${token}'`);
+  if (preferred) console.log(`\nQR code:\n  npx evenhub qr --url 'http://${preferred.address}:${appPort}/?token=${token}'`);
 });
 
 // paths like "//?token=…" are protocol-relative to `new URL(path, base)` and throw, so prefix

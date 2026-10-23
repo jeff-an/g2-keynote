@@ -20,4 +20,4 @@ export type DeckState = {
 
 export type ServerMessage = { type: "state"; state: DeckState };
 
-export type ClientMessage = { type: "next" } | { type: "prev" };
+export type ClientMessage = { type: "next" } | { type: "prev" } | { type: "debug"; event: unknown };

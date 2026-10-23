@@ -61,13 +61,26 @@ connection.
 - Skipped slides are left out of "Next" and the slide count.
 - "Next" uses the slide's title; untitled slides fall back to the first line of their notes.
 
-## Develop without a Mac
+## Develop
 
 ```bash
-npm run mock   # fake 5-slide deck that responds to next/prev
+npm run dev       # hot reload: Vite serves the app on :5173, helper restarts on change
+npm run dev:mock  # same, with a fake 5-slide deck (no Keynote needed)
+npm run debug     # normal run, plus every raw ring/temple event printed in the terminal
 npm test
 npm run typecheck
 ```
+
+In dev mode, scan the QR command the helper prints. It points at port 5173, and saving a file
+in `src/` reloads the page on the glasses. Raw input events are printed too, which helps when a
+gesture doesn't do what you expect.
+
+## Display limits
+
+The G2 has one fixed font: 27px lines, about 60 characters wide, and no font-size control in
+the SDK. The lens fits 7 lines of notes. Longer notes split into pages ("p1/2" in the header);
+scroll on the ring or temple to change page. Panes are sized to their exact line count, because
+text that overflows a pane makes the firmware take over scrolling.
 
 ## Optional: install as an Even Hub package
 

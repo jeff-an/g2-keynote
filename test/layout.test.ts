@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildState, DeckSlide } from "../helper/state.ts";
-import { COLS, formatClock, renderScreen, wrap } from "../src/layout.ts";
+import { getTextWidth } from "@evenrealities/pretext";
+import { BODY_LINES, formatClock, PANE_GEOMETRY, renderScreen, wrap } from "../src/layout.ts";
 
 const SLIDES: DeckSlide[] = [
   { number: 1, skipped: false, title: "Intro", notes: "Hello" },
@@ -27,15 +28,24 @@ test("last slide has no next", () => {
   assert.match(renderScreen({ state: s, connected: true, page: 0, elapsedMs: 0 }).footer, /end of deck/);
 });
 
-test("wrap respects width, keeps line breaks, and hard-splits long words", () => {
-  const lines = wrap("aaa bbb\n" + "x".repeat(COLS + 5), 10);
-  assert.ok(lines.every((l) => l.length <= 10));
+test("wrap fits the pixel width, keeps line breaks, and hard-splits long words", () => {
+  const long = "x".repeat(200);
+  const lines = wrap("aaa bbb\n" + long, 300);
+  assert.ok(lines.every((l) => getTextWidth(l) <= 300));
   assert.equal(lines[0], "aaa bbb");
-  assert.equal(lines.slice(1).join(""), "x".repeat(COLS + 5));
+  assert.equal(lines.slice(1).join(""), long);
+});
+
+test("panes stack within the 288px screen and the body fits its line count", () => {
+  const { header, body, footer, pad } = PANE_GEOMETRY;
+  assert.equal(body.y, header.y + header.height);
+  assert.equal(footer.y, body.y + body.height);
+  assert.ok(footer.y + footer.height <= 288);
+  assert.ok(BODY_LINES * 27 <= body.height - 2 * pad);
 });
 
 test("long notes paginate and the page clamps", () => {
-  const notes = Array.from({ length: 20 }, (_, i) => `line ${i}`).join("\n");
+  const notes = Array.from({ length: 20 }, (_, i) => `line ${i}`).join("\n"); // 20 lines → 3 pages of 7
   const s = buildState({
     source: "mock",
     status: "playing",
