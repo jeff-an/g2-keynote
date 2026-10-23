@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "tsx watch helper/server.ts --dev --debug & vite --host --port 5173 --strictPort",
     "dev:mock": "tsx watch helper/server.ts --dev --debug --mock & vite --host --port 5173 --strictPort",
+    "sim": "npx -y @evenrealities/evenhub-simulator@0.9.5 --automation-port 9898 \"http://localhost:5173/?token=$(cat ~/.g2-presenter/token)\"",
     "start": "npm run build && tsx helper/server.ts",
     "debug": "npm run build && tsx helper/server.ts --debug",
     "mock": "npm run build && tsx helper/server.ts --mock",

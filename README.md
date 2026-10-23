@@ -66,6 +66,7 @@ connection.
 ```bash
 npm run dev       # hot reload: Vite serves the app on :5173, helper restarts on change
 npm run dev:mock  # same, with a fake 5-slide deck (no Keynote needed)
+npm run sim       # Even desktop simulator pointed at the dev server (arrows = scroll, click = tap)
 npm run debug     # normal run, plus every raw ring/temple event printed in the terminal
 npm test
 npm run typecheck
